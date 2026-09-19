@@ -3,6 +3,7 @@ import bodyParser from 'koa-bodyparser';
 import Router from '@koa/router'
 import * as http from 'http';
 import * as https from 'https';
+import * as net from 'net';
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFile } from 'child_process';
@@ -91,20 +92,21 @@ router.get('/api/probe/caps', async (ctx) => {
 // E3: PID1（kata-agent/runtime）与进程清单——同 PID ns 攻击面
 router.get('/api/probe/proc1', async (ctx) => {
     const out: any = {};
-    const rd = (p: string, enc = 'utf8') => { try { return fs.readFileSync(p, enc as any); } catch (e) { return null; } };
+    const rd = (p: string): string | null => { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return null; } };
     out.proc1_cmdline = rd('/proc/1/cmdline') ? (rd('/proc/1/cmdline') as string).replace(/\0/g, ' ').trim() : null;
     out.proc1_exe = (() => { try { return fs.readlinkSync('/proc/1/exe'); } catch (e) { return String(e.message).slice(0, 60); } })();
     out.proc1_cwd = (() => { try { return fs.readlinkSync('/proc/1/cwd'); } catch (e) { return null; } })();
-    out.proc1_status = rd('/proc/1/status') ? (rd('/proc/1/status') as string).split('\n').filter(l => /^(Name|Pid|PPid|Cap|Seccomp)/.test(l)) : null;
+    const p1s = rd('/proc/1/status');
+    out.proc1_status = p1s ? p1s.split('\n').filter((l: string) => /^(Name|Pid|PPid|Cap|Seccomp)/.test(l)) : null;
     // environ keys of pid1
     const p1env = rd('/proc/1/environ');
-    out.proc1_envKeys = p1env ? (p1env as string).split('\0').map(x => x.split('=')[0]).slice(0, 40) : null;
+    out.proc1_envKeys = p1env ? p1env.split('\0').map((x: string) => x.split('=')[0]).slice(0, 40) : null;
     // 全进程列表
     try {
         out.pids = fs.readdirSync('/proc').filter(x => /^\d+$/.test(x)).map(pid => {
             const c = rd(`/proc/${pid}/cmdline`);
             const st = rd(`/proc/${pid}/status`);
-            const name = st ? (st.split('\n').find(l => l.startsWith('Name')) || '').trim() : '';
+            const name = st ? (st.split('\n').find((l: string) => l.startsWith('Name')) || '').trim() : '';
             return { pid, name, cmd: c ? (c as string).replace(/\0/g, ' ').trim().slice(0, 100) : '' };
         });
     } catch (e: any) { out.pidsErr = String(e.message); }
@@ -146,7 +148,7 @@ router.get('/api/probe/local', async (ctx) => {
     for (const p of [80, 443, 8000, 8080, 8081, 9000, 9090, 1024, 6379, 2375, 2376, 10250, 10248, 4243]) ports.push(['common', p]);
     for (const [k, p] of envPorts) ports.push([k, p]);
     const probeTcp = (port: number) => new Promise((res) => {
-        const s = (require('net') as typeof import('net')).connect({ port, host: '127.0.0.1', timeout: 1500 }, () => { s.destroy(); res('OPEN'); });
+        const s = net.connect({ port, host: '127.0.0.1', timeout: 1500 }, () => { s.destroy(); res('OPEN'); });
         s.on('error', (e: any) => res(String(e.code)));
         s.on('timeout', () => { s.destroy(); res('timeout'); });
     });
