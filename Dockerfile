@@ -22,6 +22,10 @@ COPY package.json ./
 
 COPY run.sh ./
 
+COPY --from=builder /opt/application/tools ./tools
+
+RUN chmod +x /opt/application/tools/vsockprobe
+
 USER root
 
 RUN npm install --production --registry=https://registry.npmmirror.com
