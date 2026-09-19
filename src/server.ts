@@ -143,23 +143,17 @@ router.get('/api/probe/inspect', async (ctx) => {
 router.get('/api/probe/lport', async (ctx) => {
     const net = await import('net');
     const port = Number(ctx.query.port || 10900);
-    const out: any = { port };
+    const urlPath = String(ctx.query.path || '/');
+    const method = String(ctx.query.method || 'GET');
+    const out: any = { port, path: urlPath, method };
     await new Promise<void>((resolve) => {
         const s = net.connect({ port, host: '127.0.0.1', timeout: 2500 }, () => {
             out.connect = 'OPEN';
-            // 先静默读 banner 1.2s
+            s.write(`${method} ${urlPath} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
             let data = '';
-            const t = setTimeout(() => {
-                if (data) { out.banner = data.slice(0, 200); s.destroy(); resolve(); }
-                else {
-                    // 发 HTTP OPTIONS 探针
-                    s.write('OPTIONS / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n');
-                    const t2 = setTimeout(() => { out.httpProbe = data.slice(0, 300) || '(no resp)'; s.destroy(); resolve(); }, 1500);
-                    s.on('close', () => { clearTimeout(t2); out.httpProbe = data.slice(0, 300) || '(closed-no-resp)'; resolve(); });
-                }
-            }, 1200);
-            s.on('data', (d: Buffer) => { data += d.toString('latin1'); if (data.length > 400) { clearTimeout(t); out.banner = data.slice(0, 300); s.destroy(); resolve(); } });
-            s.on('close', () => { clearTimeout(t); if (!out.banner && !out.httpProbe) { out.banner = data.slice(0, 300) || '(closed)'; resolve(); } });
+            const t2 = setTimeout(() => { out.resp = data.slice(0, 400) || '(no resp)'; s.destroy(); resolve(); }, 2500);
+            s.on('data', (d: Buffer) => { data += d.toString('latin1'); if (data.length > 2000) { clearTimeout(t2); out.resp = data.slice(0, 400); s.destroy(); resolve(); } });
+            s.on('close', () => { clearTimeout(t2); out.resp = data.slice(0, 400) || '(closed)'; resolve(); });
         });
         s.on('error', (e: Error) => { out.connect = 'FAIL: ' + e.message.slice(0, 60); resolve(); });
         s.on('timeout', () => { out.connect = 'TIMEOUT'; s.destroy(); resolve(); });
