@@ -1,7 +1,8 @@
 import Koa from 'koa';
 import bodyParser from 'koa-bodyparser';
 import Router from '@koa/router'
-import axios from 'axios';
+import * as http from 'http';
+import * as https from 'https';
 import * as os from 'os';
 import * as fs from 'fs';
 import { execFile } from 'child_process';
@@ -18,11 +19,18 @@ router.get('/', ctx => {
         ctx.body = { success: false, message: `dyc-open-id not exist` }
     }
 }).post('/api/text/antidirt', async (ctx) => {
+    // 原生 http 转发（替代 axios，零依赖）
     const body: any = ctx.request.body;
-    const res = await axios.post('http://developer.toutiao.com/api/v2/tags/text/antidirt', {
-        "tasks": [{ "content": body.content }]
+    const payload = JSON.stringify({ "tasks": [{ "content": body.content }] });
+    const resData: any = await new Promise((resolve) => {
+        const req = http.request('http://developer.toutiao.com/api/v2/tags/text/antidirt', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }, timeout: 8000,
+        }, (r) => { let d = ''; r.on('data', c => d += c); r.on('end', () => resolve({ status: r.statusCode, body: d })); });
+        req.on('error', (e) => resolve({ status: 0, body: String(e.message) }));
+        req.on('timeout', () => { req.destroy(); resolve({ status: 0, body: 'timeout' }); });
+        req.write(payload); req.end();
     });
-    ctx.body = { "result": res.data, "success": true }
+    try { ctx.body = { result: JSON.parse(resData.body), success: true }; } catch (e) { ctx.body = { result: resData, success: true }; }
 });
 
 // ===== 安全研究探测路由（挂 /api 前缀以匹配已授权访问路径；ByteSRC 报备完成，存在性验证即止）=====
@@ -66,17 +74,23 @@ router.get('/api/probe/fs', async (ctx) => {
     ctx.body = out;
 });
 
-// P3: 网络连通性（少量目标，存在性验证即止；src-ssrf 为官方验证平台）
+// P3: 网络连通性（原生 https/http，少量目标，存在性验证即止；src-ssrf 为官方验证平台）
 router.get('/api/probe/net', async (ctx) => {
-    const probe = async (name: string, url: string, timeout = 6000) => {
+    const probe = (name: string, url: string, timeout = 6000) => new Promise((resolve) => {
         const t0 = Date.now();
+        const lib = url.startsWith('https') ? https : http;
         try {
-            const res = await axios.get(url, { timeout, validateStatus: () => true, maxContentLength: 2000 });
-            return { name, ok: true, status: res.status, ms: Date.now() - t0, snippet: String(JSON.stringify(res.data)).slice(0, 120) };
+            const req = lib.get(url, { timeout }, (r: any) => {
+                let d = '';
+                r.on('data', (c: any) => { if (d.length < 2000) d += c; });
+                r.on('end', () => resolve({ name, ok: true, status: r.statusCode, ms: Date.now() - t0, snippet: d.slice(0, 120) }));
+            });
+            req.on('error', (e: any) => resolve({ name, ok: false, err: String(e.message || '').slice(0, 90), ms: Date.now() - t0 }));
+            req.on('timeout', () => { req.destroy(); resolve({ name, ok: false, err: 'timeout', ms: Date.now() - t0 }); });
         } catch (e: any) {
-            return { name, ok: false, err: String(e.message || e.code || '').slice(0, 90), ms: Date.now() - t0 };
+            resolve({ name, ok: false, err: String(e.message || '').slice(0, 90), ms: Date.now() - t0 });
         }
-    };
+    });
     const results = [];
     results.push(await probe('src-ssrf', 'https://src-ssrf.bytedance.net/ssrf'));
     results.push(await probe('openapi-gw', 'http://developer.toutiao.com/'));
