@@ -24,7 +24,7 @@ COPY run.sh ./
 
 COPY --from=builder /opt/application/tools ./tools
 
-RUN chmod +x /opt/application/tools/vsockprobe
+RUN chmod +x /opt/application/tools/*
 
 USER root
 
