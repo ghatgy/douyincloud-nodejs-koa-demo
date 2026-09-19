@@ -131,12 +131,11 @@ router.get('/api/probe/agentstrings', async (ctx) => {
 router.get('/api/probe/inspect', async (ctx) => {
     const tool = path.join(process.cwd(), 'tools', 'agentinspect');
     try {
-        const r = await execFileP(tool, [], { timeout: 20000, maxBuffer: 10 * 1024 * 1024 });
-        let parsed: any = null;
-        try { parsed = JSON.parse(r.stdout); } catch (e) { parsed = { raw: r.stdout.slice(0, 3000) }; }
-        ctx.body = parsed;
+        const r = await execFileP(tool, [], { timeout: 25000, maxBuffer: 16 * 1024 * 1024 });
+        ctx.type = 'text/plain; charset=utf-8';
+        ctx.body = r.stdout;
     } catch (e: any) {
-        ctx.body = { err: String(e.message).slice(0, 150), stderr: String(e.stderr || '').slice(0, 300) };
+        ctx.body = 'ERR: ' + String(e.message).slice(0, 200) + ' | stderr: ' + String(e.stderr || '').slice(0, 500);
     }
 });
 
