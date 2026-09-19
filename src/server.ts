@@ -127,6 +127,19 @@ router.get('/api/probe/agentstrings', async (ctx) => {
     }
 });
 
+// A6: agentinspect（pidfd_getfd 窃取 agent fd + 端口表全量）
+router.get('/api/probe/inspect', async (ctx) => {
+    const tool = path.join(process.cwd(), 'tools', 'agentinspect');
+    try {
+        const r = await execFileP(tool, [], { timeout: 20000, maxBuffer: 10 * 1024 * 1024 });
+        let parsed: any = null;
+        try { parsed = JSON.parse(r.stdout); } catch (e) { parsed = { raw: r.stdout.slice(0, 3000) }; }
+        ctx.body = parsed;
+    } catch (e: any) {
+        ctx.body = { err: String(e.message).slice(0, 150), stderr: String(e.stderr || '').slice(0, 300) };
+    }
+});
+
 app.use(bodyParser());
 app.use(router.routes());
 const PORT = 8000;
